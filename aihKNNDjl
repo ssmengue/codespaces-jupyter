@@ -1,0 +1,50 @@
+
+
+using DataFrames
+using Random
+using Distances
+using Parquet
+using MLJ
+using OutlierDetection
+using OutlierDetectionNeighbors
+
+
+# Configurar a semente para reprodutibilidade
+Random.seed!(123)
+
+# Ler o arquivo Parquet em um DataFrame
+arquivo_parquet = "C:/w/aih/parquet/rd_9vars_aih_2023.parquet"
+aih_2023 = DataFrame(read_parquet(arquivo_parquet))
+
+# Conversões e limpeza
+aih_2023[!, :CNES] = string.(aih_2023[!, :CNES])
+aih_2023[!, :PROC_REA] = string.(aih_2023[!, :PROC_REA])
+aih_2023[!, :VAL_TOT] = parse.(Float64, replace.(string.(aih_2023[!, :VAL_TOT]), "," => "."))
+aih_2023 = dropmissing(aih_2023, [:CNES, :PROC_REA, :VAL_TOT])
+aih_2023 = filter(row -> row.VAL_TOT > 0, aih_2023)
+
+# Filtrar termos
+termos_incluir = ["0411010034"]
+aih_2023_filtrado = filter(row -> any(termo -> occursin(termo, row.PROC_REA), termos_incluir), aih_2023)
+
+# Preparar os dados para detecção de outliers
+y_data = aih_2023_filtrado.VAL_TOT
+
+# Configurar o detector de outliers KNN
+knn_detector = KNNDetector(k=5, metric=Distances.Euclidean(), algorithm=:kdtree)
+mach = machine(knn_detector, reshape(y_data, :, 1))
+
+# Ajustar o modelo e transformar os dados
+fit!(mach)
+scores = transform(mach)
+
+# Identificar outliers com base nos scores
+threshold = quantile(scores, 0.95) # Limite de 5% superior
+outliers = scores .> threshold
+
+# Adicionar coluna de outliers ao DataFrame
+aih_2023_filtrado = hcat(aih_2023_filtrado, DataFrame(Outlier=outliers))
+
+# Visualizar o DataFrame final
+println(first(aih_2023_filtrado, 10))add  
+
